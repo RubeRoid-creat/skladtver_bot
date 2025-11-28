@@ -1,6 +1,8 @@
-# Телеграм-бот "Склад"
+# Телеграм-бот "Склад Тверь"
 
 Бот для управления складом с функциями учета товаров и кассы.
+
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-blue)](https://github.com/RubeRoid-creat/skladtver_bot)
 
 ## Функции
 
@@ -62,15 +64,44 @@ python bot.py
 - `products` - товары
 - `cashbox` - операции кассы
 
+## Развертывание на сервере
+
+Подробные инструкции по развертыванию на сервере см. в файле [DEPLOY.md](DEPLOY.md)
+
+### Быстрый старт с Docker
+
+```bash
+# Создайте файл .env с токеном бота
+echo "BOT_TOKEN=your_token" > .env
+
+# Запустите контейнер
+docker-compose up -d
+```
+
+### Развертывание с systemd
+
+1. Настройте файл `skladtver-bot.service`
+2. Скопируйте его в `/etc/systemd/system/`
+3. Запустите: `sudo systemctl start skladtver-bot`
+
 ## Структура проекта
 
 ```
-Sklad/
-├── bot.py              # Основной файл бота
-├── database.py         # Модуль работы с БД
-├── requirements.txt    # Зависимости
-├── .env.example        # Пример конфигурации
-├── .gitignore         # Игнорируемые файлы
-└── README.md          # Документация
+skladtver_bot/
+├── bot.py                  # Основной файл бота
+├── database.py             # Модуль работы с БД
+├── requirements.txt        # Зависимости
+├── .env.example           # Пример конфигурации
+├── .gitignore             # Игнорируемые файлы
+├── README.md              # Документация
+├── DEPLOY.md              # Инструкции по развертыванию
+├── deploy.sh              # Скрипт для деплоя
+├── skladtver-bot.service  # Systemd сервис
+├── Dockerfile             # Docker образ
+└── docker-compose.yml     # Docker Compose конфигурация
 ```
+
+## Лицензия
+
+Этот проект создан для внутреннего использования.
 

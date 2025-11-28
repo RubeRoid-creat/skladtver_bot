@@ -1,0 +1,16 @@
+[Unit]
+Description=Telegram Bot Sklad Tver
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/path/to/skladtver_bot
+Environment="PATH=/path/to/venv/bin"
+ExecStart=/path/to/venv/bin/python /path/to/skladtver_bot/bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+

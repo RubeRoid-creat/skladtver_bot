@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: skladtver-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./warehouse.db:/app/warehouse.db
+    environment:
+      - PYTHONUNBUFFERED=1
+
