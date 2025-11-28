@@ -555,6 +555,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Получаем текущее состояние пользователя
     state = user_states.get(user_id, None)
     
+    # Если пользователь не в состоянии ожидания ввода данных, игнорируем сообщение
+    if not state:
+        return
+    
     # Обработка в зависимости от состояния
     if state == "add_product":
         # Добавление товара: наименование товара , количество , цена
@@ -981,56 +985,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
     
-    # Если состояние не установлено, пробуем определить по формату
-    # Добавление товара: наименование товара , количество , цена
-    if "," in text:
-        parts = [p.strip() for p in text.split(",")]
-        if len(parts) == 3:
-            try:
-                name, quantity, price = parts
-                quantity = int(quantity)
-                price = float(price)
-                
-                if db.add_product(name, quantity, price):
-                    keyboard = [
-                        [InlineKeyboardButton("➕ Добавить еще", callback_data="product_add")],
-                        [InlineKeyboardButton("📦 Товары", callback_data="menu_products")],
-                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    await update.message.reply_text(
-                        f"✅ Товар добавлен:\n"
-                        f"Название: {name}\n"
-                        f"Количество: {quantity}\n"
-                        f"Цена: {price:.2f} руб.",
-                        reply_markup=reply_markup
-                    )
-                else:
-                    keyboard = [
-                        [InlineKeyboardButton("📦 Товары", callback_data="menu_products")],
-                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    await update.message.reply_text(
-                        f"❌ Товар '{name}' уже существует",
-                        reply_markup=reply_markup
-                    )
-                return
-            except ValueError:
-                pass
-    
-    # Если ничего не подошло
+    # Если состояние установлено, но формат не подошел - показываем ошибку
+    # (это означает, что пользователь в состоянии ожидания ввода, но ввел неверные данные)
     keyboard = [
+        [InlineKeyboardButton("◀️ Назад", callback_data="back_main")],
         [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         "❌ Неверный формат данных.\n\n"
-        "Используйте команды из меню или формат:\n"
-        "• Добавление: наименование товара , количество , цена\n"
-        "• Изменение количества: название | количество\n"
-        "• Изменение цены: название | цена\n"
-        "• Продажа: название | количество",
+        "Используйте кнопки меню для выбора действия.",
         reply_markup=reply_markup
     )
 
