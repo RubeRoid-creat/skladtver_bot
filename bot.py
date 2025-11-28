@@ -433,24 +433,82 @@ async def handle_product_action(query, data: str):
         return
     
     elif data == "product_quantity":
-        user_states[user_id] = "update_quantity"
+        # Показать список товаров для выбора
+        products = db.get_all_products()
+        
+        if not products:
+            keyboard = [
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "❌ Товары не найдены",
+                reply_markup=reply_markup
+            )
+            return
+        
+        text = "📝 Выберите товар для изменения количества:\n\n"
+        keyboard = []
+        
+        for product in products:
+            product_name_encoded = product['name'].replace(" ", "_")
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"📦 {product['name']} (текущее: {product['quantity']})",
+                    callback_data=f"product_qty_{product_name_encoded}"
+                )
+            ])
+        
+        keyboard.append([
+            InlineKeyboardButton("◀️ Назад", callback_data="menu_products"),
+            InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")
+        ])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await query.edit_message_text(
-            "📝 Изменение количества\n\n"
-            "Введите данные в формате:\n"
-            "название | новое_количество\n\n"
-            "Пример: Молоко | 15",
-            reply_markup=nav_markup
+            text + "Выберите товар из списка:",
+            reply_markup=reply_markup
         )
         return
     
     elif data == "product_price":
-        user_states[user_id] = "update_price"
+        # Показать список товаров для выбора
+        products = db.get_all_products()
+        
+        if not products:
+            keyboard = [
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "❌ Товары не найдены",
+                reply_markup=reply_markup
+            )
+            return
+        
+        text = "💵 Выберите товар для изменения цены:\n\n"
+        keyboard = []
+        
+        for product in products:
+            product_name_encoded = product['name'].replace(" ", "_")
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"📦 {product['name']} (текущая: {product['price']:.2f} руб.)",
+                    callback_data=f"product_price_{product_name_encoded}"
+                )
+            ])
+        
+        keyboard.append([
+            InlineKeyboardButton("◀️ Назад", callback_data="menu_products"),
+            InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")
+        ])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await query.edit_message_text(
-            "💵 Изменение цены\n\n"
-            "Введите данные в формате:\n"
-            "название | новая_цена\n\n"
-            "Пример: Молоко | 55.00",
-            reply_markup=nav_markup
+            text + "Выберите товар из списка:",
+            reply_markup=reply_markup
         )
         return
     
@@ -481,11 +539,6 @@ async def handle_product_action(query, data: str):
                         f"📦 {product['name']} ({product['quantity']} шт.)",
                         callback_data=f"product_sell_{product_name_encoded}"
                     )
-                ])
-                # Добавляем кнопки быстрого доступа
-                keyboard.append([
-                    InlineKeyboardButton("📝 Кол-во", callback_data=f"product_qty_{product_name_encoded}"),
-                    InlineKeyboardButton("💵 Цена", callback_data=f"product_price_{product_name_encoded}")
                 ])
         
         if not keyboard:
