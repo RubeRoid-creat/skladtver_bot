@@ -64,16 +64,49 @@ else
     echo "✅ Файл .env уже существует"
 fi
 
+# Настройка systemd сервиса
 echo ""
-echo "✅ Установка завершена!"
+echo "🔧 Настройка systemd сервиса..."
+
+# Определение текущего пользователя
+CURRENT_USER=$(whoami)
+CURRENT_HOME=$(eval echo ~$CURRENT_USER)
+FULL_PATH="$INSTALL_DIR"
+VENV_PATH="$INSTALL_DIR/venv"
+
+echo "   Пользователь: $CURRENT_USER"
+echo "   Путь к проекту: $FULL_PATH"
+echo "   Путь к venv: $VENV_PATH"
+
+# Создание файла сервиса с правильными путями
+SERVICE_FILE="/tmp/skladtver-bot.service"
+cat > "$SERVICE_FILE" << EOF
+[Unit]
+Description=Telegram Bot Sklad Tver
+After=network.target
+
+[Service]
+Type=simple
+User=$CURRENT_USER
+WorkingDirectory=$FULL_PATH
+Environment="PATH=$VENV_PATH/bin"
+ExecStart=$VENV_PATH/bin/python $FULL_PATH/bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo ""
+echo "✅ Файл сервиса создан: $SERVICE_FILE"
 echo ""
 echo "📋 Следующие шаги:"
 echo "1. Отредактируйте файл .env и добавьте токен бота:"
 echo "   nano $INSTALL_DIR/.env"
 echo ""
-echo "2. Настройте systemd сервис:"
-echo "   sudo nano /etc/systemd/system/skladtver-bot.service"
-echo "   (Измените пути в файле skladtver-bot.service)"
+echo "2. Скопируйте файл сервиса в systemd:"
+echo "   sudo cp $SERVICE_FILE /etc/systemd/system/skladtver-bot.service"
 echo ""
 echo "3. Запустите сервис:"
 echo "   sudo systemctl daemon-reload"
@@ -82,5 +115,8 @@ echo "   sudo systemctl start skladtver-bot"
 echo ""
 echo "4. Проверьте статус:"
 echo "   sudo systemctl status skladtver-bot"
+echo ""
+echo "5. Просмотр логов:"
+echo "   sudo journalctl -u skladtver-bot -f"
 echo ""
 
