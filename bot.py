@@ -123,6 +123,73 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Просмотр конкретного товара
         product_name = data.replace("product_view_", "").replace("_", " ")
         await show_product_detail(query, product_name)
+    elif data.startswith("sell_qty_"):
+        # Быстрая продажа с выбранным количеством
+        parts = data.replace("sell_qty_", "").split("_")
+        # Находим количество (последний элемент) и название товара (все остальное)
+        quantity = int(parts[-1])
+        product_name_encoded = "_".join(parts[:-1])
+        product_name = product_name_encoded.replace("_", " ")
+        
+        success, total_price = db.sell_product(product_name, quantity)
+        if success:
+            balance = db.get_cashbox_balance()
+            keyboard = [
+                [InlineKeyboardButton("🛒 Продать еще", callback_data=f"product_sell_{product_name_encoded}")],
+                [InlineKeyboardButton("📦 К товару", callback_data=f"product_view_{product_name_encoded}")],
+                [InlineKeyboardButton("📦 Список товаров", callback_data="list_products")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                f"✅ Товар продан:\n"
+                f"Товар: {product_name}\n"
+                f"Количество: {quantity} шт.\n"
+                f"Сумма: {total_price:.2f} руб.\n"
+                f"💰 Баланс кассы: {balance:.2f} руб.",
+                reply_markup=reply_markup
+            )
+        else:
+            product = db.get_product(product_name)
+            keyboard = [
+                [InlineKeyboardButton("📦 К товару", callback_data=f"product_view_{product_name_encoded}")],
+                [InlineKeyboardButton("📦 Список товаров", callback_data="list_products")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            if not product:
+                await query.edit_message_text(
+                    f"❌ Товар '{product_name}' не найден",
+                    reply_markup=reply_markup
+                )
+            else:
+                await query.edit_message_text(
+                    f"❌ Недостаточно товара на складе.\n"
+                    f"Доступно: {product['quantity']} шт.",
+                    reply_markup=reply_markup
+                )
+    elif data.startswith("sell_custom_"):
+        # Ввод другого количества вручную
+        product_name_encoded = data.replace("sell_custom_", "")
+        product_name = product_name_encoded.replace("_", " ")
+        user_id = query.from_user.id
+        user_states[user_id] = f"sell_product_{product_name}"
+        
+        product = db.get_product(product_name)
+        available = product['quantity'] if product else 0
+        
+        nav_keyboard = [
+            [InlineKeyboardButton("◀️ Назад к выбору", callback_data=f"product_sell_{product_name_encoded}")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+        ]
+        nav_markup = InlineKeyboardMarkup(nav_keyboard)
+        await query.edit_message_text(
+            f"🛒 Продажа товара: {product_name}\n\n"
+            f"Доступно: {available} шт.\n"
+            f"Введите количество для продажи:\n\n"
+            f"Пример: 5",
+            reply_markup=nav_markup
+        )
     elif data.startswith("product_qty_"):
         # Быстрое изменение количества товара
         product_name = data.replace("product_qty_", "").replace("_", " ")
@@ -156,23 +223,57 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=nav_markup
         )
     elif data.startswith("product_sell_"):
-        # Быстрая продажа товара
+        # Показать кнопки выбора количества для продажи
         product_name = data.replace("product_sell_", "").replace("_", " ")
-        user_id = query.from_user.id
-        user_states[user_id] = f"sell_product_{product_name}"
-        nav_keyboard = [
-            [InlineKeyboardButton("◀️ Назад к товару", callback_data=f"product_view_{data.replace('product_sell_', '')}")],
-            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
-        ]
-        nav_markup = InlineKeyboardMarkup(nav_keyboard)
         product = db.get_product(product_name)
-        available = product['quantity'] if product else 0
+        
+        if not product:
+            keyboard = [
+                [InlineKeyboardButton("📦 Список товаров", callback_data="list_products")],
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                f"❌ Товар '{product_name}' не найден",
+                reply_markup=reply_markup
+            )
+            return
+        
+        available = product['quantity']
+        product_name_encoded = product_name.replace(" ", "_")
+        
+        # Создаем кнопки с вариантами количества
+        quantity_buttons = []
+        
+        # Кнопки с популярными количествами
+        if available >= 1:
+            quantity_buttons.append([InlineKeyboardButton("1 шт.", callback_data=f"sell_qty_{product_name_encoded}_1")])
+        if available >= 5:
+            quantity_buttons.append([InlineKeyboardButton("5 шт.", callback_data=f"sell_qty_{product_name_encoded}_5")])
+        if available >= 10:
+            quantity_buttons.append([InlineKeyboardButton("10 шт.", callback_data=f"sell_qty_{product_name_encoded}_10")])
+        
+        # Кнопка "Все" если товара больше 1
+        if available > 1:
+            quantity_buttons.append([InlineKeyboardButton(f"Все ({available} шт.)", callback_data=f"sell_qty_{product_name_encoded}_{available}")])
+        
+        # Кнопка для ввода другого количества
+        quantity_buttons.append([InlineKeyboardButton("✏️ Другое количество", callback_data=f"sell_custom_{product_name_encoded}")])
+        
+        # Кнопки навигации
+        quantity_buttons.append([
+            InlineKeyboardButton("◀️ Назад к товару", callback_data=f"product_view_{product_name_encoded}"),
+            InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")
+        ])
+        
+        reply_markup = InlineKeyboardMarkup(quantity_buttons)
+        
         await query.edit_message_text(
             f"🛒 Продажа товара: {product_name}\n\n"
-            f"Доступно: {available}\n"
-            f"Введите количество для продажи:\n\n"
-            f"Пример: 5",
-            reply_markup=nav_markup
+            f"📊 Доступно: {available} шт.\n"
+            f"💵 Цена: {product['price']:.2f} руб./шт.\n\n"
+            f"Выберите количество:",
+            reply_markup=reply_markup
         )
     elif data.startswith("product_"):
         await handle_product_action(query, data)
