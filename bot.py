@@ -84,18 +84,38 @@ async def products_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     products = db.get_all_products()
     
     if not products:
-        await update.message.reply_text("📦 Товары не найдены")
+        keyboard = [[InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("📦 Товары не найдены", reply_markup=reply_markup)
         return
     
     text = "📦 Список товаров:\n\n"
+    keyboard = []
+    
     for product in products:
         text += (
             f"• {product['name']}\n"
-            f"  Количество: {product['quantity']}\n"
-            f"  Цена: {product['price']:.2f} руб.\n\n"
+            f"  Количество: {product['quantity']} | "
+            f"Цена: {product['price']:.2f} руб.\n\n"
         )
+        product_name_encoded = product['name'].replace(" ", "_")
+        keyboard.append([
+            InlineKeyboardButton(
+                f"📦 {product['name']}",
+                callback_data=f"product_view_{product_name_encoded}"
+            )
+        ])
+        # Добавляем кнопки быстрого доступа
+        keyboard.append([
+            InlineKeyboardButton("📝 Кол-во", callback_data=f"product_qty_{product_name_encoded}"),
+            InlineKeyboardButton("💵 Цена", callback_data=f"product_price_{product_name_encoded}"),
+            InlineKeyboardButton("🛒 Продать", callback_data=f"product_sell_{product_name_encoded}")
+        ])
     
-    await update.message.reply_text(text)
+    keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(text, reply_markup=reply_markup)
 
 
 async def cashbox_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -368,14 +388,19 @@ async def show_products_list(query):
             f"  Количество: {product['quantity']} | "
             f"Цена: {product['price']:.2f} руб.\n\n"
         )
-        # Добавляем кнопку для каждого товара
-        # Используем base64 или просто имя товара в callback_data
+        # Добавляем кнопки для каждого товара
         product_name_encoded = product['name'].replace(" ", "_")
         keyboard.append([
             InlineKeyboardButton(
                 f"📦 {product['name']}",
                 callback_data=f"product_view_{product_name_encoded}"
             )
+        ])
+        # Добавляем кнопки быстрого доступа к изменению количества и цены
+        keyboard.append([
+            InlineKeyboardButton("📝 Кол-во", callback_data=f"product_qty_{product_name_encoded}"),
+            InlineKeyboardButton("💵 Цена", callback_data=f"product_price_{product_name_encoded}"),
+            InlineKeyboardButton("🛒 Продать", callback_data=f"product_sell_{product_name_encoded}")
         ])
     
     # Добавляем кнопку "Назад"
@@ -456,6 +481,11 @@ async def handle_product_action(query, data: str):
                         f"📦 {product['name']} ({product['quantity']} шт.)",
                         callback_data=f"product_sell_{product_name_encoded}"
                     )
+                ])
+                # Добавляем кнопки быстрого доступа
+                keyboard.append([
+                    InlineKeyboardButton("📝 Кол-во", callback_data=f"product_qty_{product_name_encoded}"),
+                    InlineKeyboardButton("💵 Цена", callback_data=f"product_price_{product_name_encoded}")
                 ])
         
         if not keyboard:
