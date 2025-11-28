@@ -16,15 +16,26 @@ from telegram.ext import (
 )
 from database import Database
 
-# Загрузка переменных окружения
-load_dotenv()
-
-# Настройка логирования
+# Настройка логирования (должна быть до load_dotenv для корректной обработки ошибок)
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Загрузка переменных окружения
+try:
+    # Явно указываем путь к .env файлу
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+        logger.info(f"Файл .env загружен из: {env_path}")
+    else:
+        load_dotenv()  # Пробуем загрузить из текущей директории
+        logger.info("Попытка загрузить .env из текущей директории")
+except Exception as e:
+    logger.warning(f"Не удалось загрузить .env файл: {e}")
+    logger.info("Продолжаю работу с переменными окружения системы")
 
 # Инициализация базы данных
 db = Database()
@@ -202,8 +213,8 @@ async def handle_product_action(query, data: str):
         await query.edit_message_text(
             "➕ Добавление товара\n\n"
             "Введите данные в формате:\n"
-            "название | количество | цена\n\n"
-            "Пример: Молоко | 10 | 50.00"
+            "наименование товара , количество , цена\n\n"
+            "Пример: Молоко , 10 , 50.00"
         )
         return
     
@@ -303,9 +314,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Обработка в зависимости от состояния
     if state == "add_product":
-        # Добавление товара: название | количество | цена
-        if "|" in text and text.count("|") == 2:
-            parts = [p.strip() for p in text.split("|")]
+        # Добавление товара: наименование товара , количество , цена
+        if "," in text:
+            parts = [p.strip() for p in text.split(",")]
             if len(parts) == 3:
                 try:
                     name, quantity, price = parts
@@ -326,7 +337,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     user_states.pop(user_id, None)
                     return
                 except ValueError:
-                    await update.message.reply_text("❌ Неверный формат. Используйте: название | количество | цена")
+                    await update.message.reply_text("❌ Неверный формат. Используйте: наименование товара , количество , цена")
                     return
     
     elif state == "update_quantity":
@@ -456,9 +467,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     
     # Если состояние не установлено, пробуем определить по формату
-    # Добавление товара: название | количество | цена
-    if "|" in text and text.count("|") == 2:
-        parts = [p.strip() for p in text.split("|")]
+    # Добавление товара: наименование товара , количество , цена
+    if "," in text:
+        parts = [p.strip() for p in text.split(",")]
         if len(parts) == 3:
             try:
                 name, quantity, price = parts
@@ -484,7 +495,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❌ Неверный формат данных.\n\n"
         "Используйте команды из меню или формат:\n"
-        "• Добавление: название | количество | цена\n"
+        "• Добавление: наименование товара , количество , цена\n"
         "• Изменение количества: название | количество\n"
         "• Изменение цены: название | цена\n"
         "• Продажа: название | количество"
@@ -495,8 +506,26 @@ def main():
     """Главная функция запуска бота"""
     token = os.getenv("BOT_TOKEN")
     
-    if not token:
-        logger.error("BOT_TOKEN не найден в переменных окружения!")
+    # Отладочная информация
+    logger.info(f"Текущая рабочая директория: {os.getcwd()}")
+    logger.info(f"Путь к скрипту: {os.path.dirname(__file__)}")
+    logger.info(f"BOT_TOKEN из окружения: {'установлен' if token else 'не найден'}")
+    if token:
+        logger.info(f"Длина токена: {len(token)} символов")
+    
+    if not token or token == "your_telegram_bot_token_here":
+        logger.error("=" * 60)
+        logger.error("ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
+        logger.error("=" * 60)
+        logger.error("")
+        logger.error("Для запуска бота необходимо:")
+        logger.error("1. Создать файл .env в корне проекта")
+        logger.error("2. Добавить в него строку: BOT_TOKEN=ваш_токен_бота")
+        logger.error("3. Получить токен у @BotFather в Telegram")
+        logger.error("")
+        logger.error("Пример содержимого файла .env:")
+        logger.error("BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz")
+        logger.error("=" * 60)
         return
     
     # Создание приложения
