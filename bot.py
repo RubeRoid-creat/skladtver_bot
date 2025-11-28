@@ -430,13 +430,55 @@ async def handle_product_action(query, data: str):
         return
     
     elif data == "product_sell":
-        user_states[user_id] = "sell_product"
+        # Показать список товаров для выбора
+        products = db.get_all_products()
+        
+        if not products:
+            keyboard = [
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "❌ Товары не найдены",
+                reply_markup=reply_markup
+            )
+            return
+        
+        text = "🛒 Выберите товар для продажи:\n\n"
+        keyboard = []
+        
+        for product in products:
+            if product['quantity'] > 0:  # Показываем только товары с количеством > 0
+                product_name_encoded = product['name'].replace(" ", "_")
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"📦 {product['name']} ({product['quantity']} шт.)",
+                        callback_data=f"product_sell_{product_name_encoded}"
+                    )
+                ])
+        
+        if not keyboard:
+            keyboard = [
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "❌ Нет товаров в наличии для продажи",
+                reply_markup=reply_markup
+            )
+            return
+        
+        keyboard.append([
+            InlineKeyboardButton("◀️ Назад", callback_data="menu_products"),
+            InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")
+        ])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await query.edit_message_text(
-            "🛒 Продажа товара\n\n"
-            "Введите данные в формате:\n"
-            "название | количество\n\n"
-            "Пример: Молоко | 5",
-            reply_markup=nav_markup
+            text + "Выберите товар из списка:",
+            reply_markup=reply_markup
         )
         return
 
