@@ -51,6 +51,16 @@ class Database:
             )
         """)
         
+        # Таблица администраторов
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS admins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE,
+                username TEXT,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         # Инициализация кассы, если её нет
         cursor.execute("SELECT COUNT(*) FROM cashbox")
         if cursor.fetchone()[0] == 0:
@@ -308,6 +318,76 @@ class Database:
             LIMIT ?
         """, (limit,))
         
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [dict(row) for row in rows]
+    
+    # === Управление администраторами ===
+    
+    def is_admin(self, user_id: int) -> bool:
+        """Проверить, является ли пользователь администратором"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) FROM admins WHERE user_id = ?", (user_id,))
+        result = cursor.fetchone()[0] > 0
+        conn.close()
+        
+        return result
+    
+    def add_admin(self, user_id: int, username: str = None) -> bool:
+        """
+        Добавить администратора
+        
+        Args:
+            user_id: ID пользователя Telegram
+            username: Имя пользователя (опционально)
+            
+        Returns:
+            True если успешно, False если уже является админом
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                INSERT INTO admins (user_id, username)
+                VALUES (?, ?)
+            """, (user_id, username))
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+        finally:
+            conn.close()
+    
+    def remove_admin(self, user_id: int) -> bool:
+        """
+        Удалить администратора
+        
+        Args:
+            user_id: ID пользователя Telegram
+            
+        Returns:
+            True если успешно, False если не найден
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
+        success = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        
+        return success
+    
+    def get_all_admins(self) -> List[Dict]:
+        """Получить список всех администраторов"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM admins ORDER BY added_at")
         rows = cursor.fetchall()
         conn.close()
         

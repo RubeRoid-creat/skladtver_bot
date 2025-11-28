@@ -40,21 +40,35 @@ except Exception as e:
 # Инициализация базы данных
 db = Database()
 
+# Функция проверки прав администратора
+def is_admin(user_id: int) -> bool:
+    """Проверить, является ли пользователь администратором"""
+    return db.is_admin(user_id)
+
 
 # === Команды бота ===
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
+    user_id = update.message.from_user.id
+    admin = is_admin(user_id)
+    
     keyboard = [
         [InlineKeyboardButton("📦 Товары", callback_data="menu_products")],
         [InlineKeyboardButton("💰 Касса", callback_data="menu_cashbox")],
         [InlineKeyboardButton("📊 Список товаров", callback_data="list_products")]
     ]
+    
+    if admin:
+        keyboard.append([InlineKeyboardButton("⚙️ Админ-панель", callback_data="admin_panel")])
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    role_text = "👑 Администратор" if admin else "👤 Пользователь"
     await update.message.reply_text(
-        "🏪 Добро пожаловать в систему управления складом!\n\n"
-        "Выберите действие:",
+        f"🏪 Добро пожаловать в систему управления складом!\n\n"
+        f"Ваша роль: {role_text}\n\n"
+        f"Выберите действие:",
         reply_markup=reply_markup
     )
 
@@ -68,20 +82,61 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /help - Справка
 /products - Список всех товаров
 /cashbox - Баланс кассы
+/admin - Добавить первого администратора
 
 🔧 Функции бота:
-• Добавление товаров
-• Управление количеством
-• Управление ценой
-• Продажа товаров
+• Добавление товаров (только админы)
+• Управление количеством (только админы)
+• Управление ценой (только админы)
+• Продажа товаров (все пользователи)
 • Управление кассой
     """
     await update.message.reply_text(help_text)
 
 
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /admin - добавление первого администратора"""
+    user_id = update.message.from_user.id
+    
+    # Проверяем, есть ли уже админы
+    admins = db.get_all_admins()
+    
+    if len(admins) == 0:
+        # Первый пользователь становится админом
+        username = update.message.from_user.username or "Неизвестно"
+        if db.add_admin(user_id, username):
+            await update.message.reply_text(
+                f"✅ Вы стали первым администратором!\n"
+                f"Ваш ID: {user_id}\n\n"
+                f"Теперь вы можете управлять товарами и добавлять других администраторов."
+            )
+        else:
+            await update.message.reply_text("❌ Ошибка при добавлении администратора")
+    else:
+        # Если админы уже есть, проверяем права
+        if is_admin(user_id):
+            keyboard = [
+                [InlineKeyboardButton("⚙️ Админ-панель", callback_data="admin_panel")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "👑 Вы уже являетесь администратором!\n\n"
+                "Используйте админ-панель для управления.",
+                reply_markup=reply_markup
+            )
+        else:
+            await update.message.reply_text(
+                "❌ Доступ запрещен!\n\n"
+                "Для добавления администраторов обратитесь к существующему администратору."
+            )
+
+
 async def products_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /products"""
     products = db.get_all_products()
+    user_id = update.message.from_user.id
+    admin = is_admin(user_id)
     
     if not products:
         keyboard = [[InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]]
@@ -105,12 +160,17 @@ async def products_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 callback_data=f"product_view_{product_name_encoded}"
             )
         ])
-        # Добавляем кнопки быстрого доступа
-        keyboard.append([
-            InlineKeyboardButton("📝 Кол-во", callback_data=f"product_qty_{product_name_encoded}"),
-            InlineKeyboardButton("💵 Цена", callback_data=f"product_price_{product_name_encoded}"),
-            InlineKeyboardButton("🛒 Продать", callback_data=f"product_sell_{product_name_encoded}")
-        ])
+        # Кнопки быстрого доступа (только для админов - изменение, все - продажа)
+        if admin:
+            keyboard.append([
+                InlineKeyboardButton("📝 Кол-во", callback_data=f"product_qty_{product_name_encoded}"),
+                InlineKeyboardButton("💵 Цена", callback_data=f"product_price_{product_name_encoded}"),
+                InlineKeyboardButton("🛒 Продать", callback_data=f"product_sell_{product_name_encoded}")
+            ])
+        else:
+            keyboard.append([
+                InlineKeyboardButton("🛒 Продать", callback_data=f"product_sell_{product_name_encoded}")
+            ])
     
     keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")])
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -211,9 +271,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=nav_markup
         )
     elif data.startswith("product_qty_"):
-        # Быстрое изменение количества товара
-        product_name = data.replace("product_qty_", "").replace("_", " ")
+        # Быстрое изменение количества товара - проверка прав
         user_id = query.from_user.id
+        if not is_admin(user_id):
+            keyboard = [
+                [InlineKeyboardButton("◀️ Назад", callback_data="list_products")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "❌ Доступ запрещен!\n\n"
+                "Эта функция доступна только администраторам.",
+                reply_markup=reply_markup
+            )
+            return
+        product_name = data.replace("product_qty_", "").replace("_", " ")
         user_states[user_id] = f"update_quantity_{product_name}"
         nav_keyboard = [
             [InlineKeyboardButton("◀️ Назад к товару", callback_data=f"product_view_{data.replace('product_qty_', '')}")],
@@ -227,9 +299,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=nav_markup
         )
     elif data.startswith("product_price_"):
-        # Быстрое изменение цены товара
-        product_name = data.replace("product_price_", "").replace("_", " ")
+        # Быстрое изменение цены товара - проверка прав
         user_id = query.from_user.id
+        if not is_admin(user_id):
+            keyboard = [
+                [InlineKeyboardButton("◀️ Назад", callback_data="list_products")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "❌ Доступ запрещен!\n\n"
+                "Эта функция доступна только администраторам.",
+                reply_markup=reply_markup
+            )
+            return
+        product_name = data.replace("product_price_", "").replace("_", " ")
         user_states[user_id] = f"update_price_{product_name}"
         nav_keyboard = [
             [InlineKeyboardButton("◀️ Назад к товару", callback_data=f"product_view_{data.replace('product_price_', '')}")],
@@ -299,8 +383,64 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_product_action(query, data)
     elif data.startswith("cashbox_"):
         await handle_cashbox_action(query, data)
+    elif data == "admin_panel":
+        await show_admin_panel(query)
+    elif data.startswith("admin_add_"):
+        await handle_admin_add(query, data)
+    elif data.startswith("admin_remove_"):
+        await handle_admin_remove(query, data)
     elif data == "back_main":
         await show_main_menu(query)
+
+
+async def show_product_detail(query, product_name: str):
+    """Показать детальную информацию о товаре с кнопками действий"""
+    product = db.get_product(product_name)
+    user_id = query.from_user.id
+    admin = is_admin(user_id)
+    
+    if not product:
+        keyboard = [
+            [InlineKeyboardButton("📦 Список товаров", callback_data="list_products")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_main")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"❌ Товар '{product_name}' не найден",
+            reply_markup=reply_markup
+        )
+        return
+    
+    text = (
+        f"📦 Товар: {product['name']}\n\n"
+        f"📊 Количество: {product['quantity']}\n"
+        f"💵 Цена: {product['price']:.2f} руб.\n"
+        f"💰 Общая стоимость: {product['quantity'] * product['price']:.2f} руб.\n"
+    )
+    
+    # Кнопки для быстрых действий с товаром
+    product_name_encoded = product['name'].replace(" ", "_")
+    keyboard = []
+    
+    # Только админы могут изменять количество и цену
+    if admin:
+        keyboard.append([
+            InlineKeyboardButton("📝 Изменить количество", callback_data=f"product_qty_{product_name_encoded}"),
+            InlineKeyboardButton("💵 Изменить цену", callback_data=f"product_price_{product_name_encoded}")
+        ])
+    
+    # Все могут продавать
+    keyboard.append([
+        InlineKeyboardButton("🛒 Продать", callback_data=f"product_sell_{product_name_encoded}")
+    ])
+    
+    keyboard.append([
+        InlineKeyboardButton("📦 Список товаров", callback_data="list_products"),
+        InlineKeyboardButton("◀️ Назад", callback_data="back_main")
+    ])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(text, reply_markup=reply_markup)
 
 
 async def show_main_menu(query):
@@ -308,16 +448,22 @@ async def show_main_menu(query):
     # Сбрасываем состояние пользователя при возврате в главное меню
     user_id = query.from_user.id
     user_states.pop(user_id, None)
+    admin = is_admin(user_id)
     
     keyboard = [
         [InlineKeyboardButton("📦 Товары", callback_data="menu_products")],
         [InlineKeyboardButton("💰 Касса", callback_data="menu_cashbox")],
         [InlineKeyboardButton("📊 Список товаров", callback_data="list_products")]
     ]
+    
+    if admin:
+        keyboard.append([InlineKeyboardButton("⚙️ Админ-панель", callback_data="admin_panel")])
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    role_text = "👑 Администратор" if admin else "👤 Пользователь"
     await query.edit_message_text(
-        "🏪 Главное меню\n\nВыберите действие:",
+        f"🏪 Главное меню\n\nВаша роль: {role_text}\n\nВыберите действие:",
         reply_markup=reply_markup
     )
 
@@ -327,18 +473,25 @@ async def show_products_menu(query):
     # Сбрасываем состояние пользователя при возврате в меню товаров
     user_id = query.from_user.id
     user_states.pop(user_id, None)
+    admin = is_admin(user_id)
     
-    keyboard = [
-        [InlineKeyboardButton("➕ Добавить товар", callback_data="product_add")],
-        [InlineKeyboardButton("📝 Изменить количество", callback_data="product_quantity")],
-        [InlineKeyboardButton("💵 Изменить цену", callback_data="product_price")],
-        [InlineKeyboardButton("🛒 Продать товар", callback_data="product_sell")],
-        [InlineKeyboardButton("◀️ Назад", callback_data="back_main")]
-    ]
+    keyboard = []
+    
+    # Только админы могут добавлять и изменять товары
+    if admin:
+        keyboard.append([InlineKeyboardButton("➕ Добавить товар", callback_data="product_add")])
+        keyboard.append([InlineKeyboardButton("📝 Изменить количество", callback_data="product_quantity")])
+        keyboard.append([InlineKeyboardButton("💵 Изменить цену", callback_data="product_price")])
+    
+    # Все могут продавать
+    keyboard.append([InlineKeyboardButton("🛒 Продать товар", callback_data="product_sell")])
+    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    role_text = "👑 Администратор" if admin else "👤 Пользователь"
     await query.edit_message_text(
-        "📦 Управление товарами\n\nВыберите действие:",
+        f"📦 Управление товарами\n\nВаша роль: {role_text}\n\nВыберите действие:",
         reply_markup=reply_markup
     )
 
@@ -363,6 +516,141 @@ async def show_cashbox_menu(query):
         f"💰 Управление кассой\n\nТекущий баланс: {balance:.2f} руб.\n\nВыберите действие:",
         reply_markup=reply_markup
     )
+
+
+async def show_admin_panel(query):
+    """Показать админ-панель"""
+    user_id = query.from_user.id
+    
+    if not is_admin(user_id):
+        keyboard = [
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_main")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "❌ Доступ запрещен!\n\n"
+            "Эта функция доступна только администраторам.",
+            reply_markup=reply_markup
+        )
+        return
+    
+    admins = db.get_all_admins()
+    text = "⚙️ Админ-панель\n\n"
+    text += f"👑 Администраторов: {len(admins)}\n\n"
+    
+    keyboard = []
+    
+    # Список админов
+    if admins:
+        text += "Список администраторов:\n"
+        for admin in admins:
+            username = admin.get('username', 'Неизвестно')
+            text += f"• ID: {admin['user_id']} (@{username})\n"
+    
+    keyboard.append([InlineKeyboardButton("➕ Добавить админа", callback_data="admin_add_menu")])
+    if len(admins) > 1:  # Нельзя удалить последнего админа
+        keyboard.append([InlineKeyboardButton("➖ Удалить админа", callback_data="admin_remove_menu")])
+    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text, reply_markup=reply_markup)
+
+
+async def handle_admin_add(query, data: str):
+    """Обработка добавления админа"""
+    user_id = query.from_user.id
+    
+    if not is_admin(user_id):
+        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_main")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "❌ Доступ запрещен!",
+            reply_markup=reply_markup
+        )
+        return
+    
+    if data == "admin_add_menu":
+        await query.edit_message_text(
+            "➕ Добавление администратора\n\n"
+            "Отправьте ID пользователя Telegram, которого хотите сделать администратором.\n\n"
+            "Для получения ID пользователя:\n"
+            "1. Попросите пользователя написать боту @userinfobot\n"
+            "2. Или используйте @getidsbot\n\n"
+            "Введите ID пользователя:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="admin_panel")]
+            ])
+        )
+        user_states[user_id] = "admin_add"
+        return
+
+
+async def handle_admin_remove(query, data: str):
+    """Обработка удаления админа"""
+    user_id = query.from_user.id
+    
+    if not is_admin(user_id):
+        keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_main")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "❌ Доступ запрещен!",
+            reply_markup=reply_markup
+        )
+        return
+    
+    if data == "admin_remove_menu":
+        admins = db.get_all_admins()
+        if len(admins) <= 1:
+            keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="admin_panel")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "❌ Нельзя удалить последнего администратора!",
+                reply_markup=reply_markup
+            )
+            return
+        
+        text = "➖ Удаление администратора\n\nВыберите администратора для удаления:\n\n"
+        keyboard = []
+        
+        for admin in admins:
+            if admin['user_id'] != user_id:  # Нельзя удалить себя
+                username = admin.get('username', 'Неизвестно')
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"👤 ID: {admin['user_id']} (@{username})",
+                        callback_data=f"admin_remove_{admin['user_id']}"
+                    )
+                ])
+        
+        keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="admin_panel")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(text, reply_markup=reply_markup)
+    elif data.startswith("admin_remove_"):
+        admin_id = int(data.replace("admin_remove_", ""))
+        
+        if admin_id == user_id:
+            keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="admin_panel")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "❌ Нельзя удалить самого себя!",
+                reply_markup=reply_markup
+            )
+            return
+        
+        if db.remove_admin(admin_id):
+            keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="admin_panel")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                f"✅ Администратор (ID: {admin_id}) удален",
+                reply_markup=reply_markup
+            )
+        else:
+            keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="admin_panel")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "❌ Администратор не найден",
+                reply_markup=reply_markup
+            )
 
 
 async def show_products_list(query):
@@ -396,12 +684,19 @@ async def show_products_list(query):
                 callback_data=f"product_view_{product_name_encoded}"
             )
         ])
-        # Добавляем кнопки быстрого доступа к изменению количества и цены
-        keyboard.append([
-            InlineKeyboardButton("📝 Кол-во", callback_data=f"product_qty_{product_name_encoded}"),
-            InlineKeyboardButton("💵 Цена", callback_data=f"product_price_{product_name_encoded}"),
-            InlineKeyboardButton("🛒 Продать", callback_data=f"product_sell_{product_name_encoded}")
-        ])
+        # Кнопки быстрого доступа (только для админов - изменение, все - продажа)
+        user_id = query.from_user.id
+        admin = is_admin(user_id)
+        if admin:
+            keyboard.append([
+                InlineKeyboardButton("📝 Кол-во", callback_data=f"product_qty_{product_name_encoded}"),
+                InlineKeyboardButton("💵 Цена", callback_data=f"product_price_{product_name_encoded}"),
+                InlineKeyboardButton("🛒 Продать", callback_data=f"product_sell_{product_name_encoded}")
+            ])
+        else:
+            keyboard.append([
+                InlineKeyboardButton("🛒 Продать", callback_data=f"product_sell_{product_name_encoded}")
+            ])
     
     # Добавляем кнопку "Назад"
     keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
@@ -413,6 +708,21 @@ async def show_products_list(query):
 async def handle_product_action(query, data: str):
     """Обработка действий с товарами"""
     user_id = query.from_user.id
+    admin = is_admin(user_id)
+    
+    # Проверка прав для админских действий
+    if data in ["product_add", "product_quantity", "product_price"] and not admin:
+        keyboard = [
+            [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "❌ Доступ запрещен!\n\n"
+            "Эта функция доступна только администраторам.",
+            reply_markup=reply_markup
+        )
+        return
     
     # Кнопки навигации для всех действий
     nav_keyboard = [
@@ -642,8 +952,81 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not state:
         return
     
+    # Обработка добавления админа
+    if state == "admin_add":
+        try:
+            admin_id = int(text)
+            
+            # Проверяем, что не добавляем самого себя (опционально, можно убрать)
+            if admin_id == user_id:
+                keyboard = [
+                    [InlineKeyboardButton("⚙️ Админ-панель", callback_data="admin_panel")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "ℹ️ Вы уже являетесь администратором.\n"
+                    "Для добавления другого администратора введите его ID.",
+                    reply_markup=reply_markup
+                )
+                return
+            
+            # Username будет "Неизвестно", так как мы не можем получить его по ID
+            # без того, чтобы пользователь сам написал боту
+            username = "Неизвестно"
+            
+            if db.add_admin(admin_id, username):
+                keyboard = [
+                    [InlineKeyboardButton("⚙️ Админ-панель", callback_data="admin_panel")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    f"✅ Администратор добавлен!\n"
+                    f"ID: {admin_id}\n\n"
+                    f"Примечание: Username будет обновлен, когда пользователь впервые напишет боту.",
+                    reply_markup=reply_markup
+                )
+            else:
+                keyboard = [
+                    [InlineKeyboardButton("⚙️ Админ-панель", callback_data="admin_panel")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    f"❌ Пользователь с ID {admin_id} уже является администратором",
+                    reply_markup=reply_markup
+                )
+            user_states.pop(user_id, None)
+            return
+        except ValueError:
+            keyboard = [
+                [InlineKeyboardButton("◀️ Назад", callback_data="admin_panel")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "❌ Неверный формат. Введите числовой ID пользователя.",
+                reply_markup=reply_markup
+            )
+            return
+    
     # Обработка в зависимости от состояния
     if state == "add_product":
+        # Проверка прав администратора
+        if not is_admin(user_id):
+            keyboard = [
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "❌ Доступ запрещен!\n\n"
+                "Эта функция доступна только администраторам.",
+                reply_markup=reply_markup
+            )
+            user_states.pop(user_id, None)
+            return
         # Добавление товара: наименование товара , количество , цена
         if "," in text:
             parts = [p.strip() for p in text.split(",")]
@@ -785,6 +1168,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         return
     
     elif state == "update_price" or (state and state.startswith("update_price_")):
+        # Проверка прав администратора
+        if not is_admin(user_id):
+            keyboard = [
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "❌ Доступ запрещен!\n\n"
+                "Эта функция доступна только администраторам.",
+                reply_markup=reply_markup
+            )
+            user_states.pop(user_id, None)
+            return
         # Изменение цены: название | цена или просто число для быстрого действия
         product_name = None
         if state.startswith("update_price_"):
@@ -1116,6 +1513,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("products", products_command))
     application.add_handler(CommandHandler("cashbox", cashbox_command))
+    application.add_handler(CommandHandler("admin", admin_command))
     
     # Регистрация обработчика кнопок
     application.add_handler(CallbackQueryHandler(button_handler))
