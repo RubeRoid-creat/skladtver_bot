@@ -119,6 +119,61 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_cashbox_menu(query)
     elif data == "list_products":
         await show_products_list(query)
+    elif data.startswith("product_view_"):
+        # Просмотр конкретного товара
+        product_name = data.replace("product_view_", "").replace("_", " ")
+        await show_product_detail(query, product_name)
+    elif data.startswith("product_qty_"):
+        # Быстрое изменение количества товара
+        product_name = data.replace("product_qty_", "").replace("_", " ")
+        user_id = query.from_user.id
+        user_states[user_id] = f"update_quantity_{product_name}"
+        nav_keyboard = [
+            [InlineKeyboardButton("◀️ Назад к товару", callback_data=f"product_view_{data.replace('product_qty_', '')}")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+        ]
+        nav_markup = InlineKeyboardMarkup(nav_keyboard)
+        await query.edit_message_text(
+            f"📝 Изменение количества товара: {product_name}\n\n"
+            f"Введите новое количество:\n\n"
+            f"Пример: 15",
+            reply_markup=nav_markup
+        )
+    elif data.startswith("product_price_"):
+        # Быстрое изменение цены товара
+        product_name = data.replace("product_price_", "").replace("_", " ")
+        user_id = query.from_user.id
+        user_states[user_id] = f"update_price_{product_name}"
+        nav_keyboard = [
+            [InlineKeyboardButton("◀️ Назад к товару", callback_data=f"product_view_{data.replace('product_price_', '')}")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+        ]
+        nav_markup = InlineKeyboardMarkup(nav_keyboard)
+        await query.edit_message_text(
+            f"💵 Изменение цены товара: {product_name}\n\n"
+            f"Введите новую цену:\n\n"
+            f"Пример: 55.00",
+            reply_markup=nav_markup
+        )
+    elif data.startswith("product_sell_"):
+        # Быстрая продажа товара
+        product_name = data.replace("product_sell_", "").replace("_", " ")
+        user_id = query.from_user.id
+        user_states[user_id] = f"sell_product_{product_name}"
+        nav_keyboard = [
+            [InlineKeyboardButton("◀️ Назад к товару", callback_data=f"product_view_{data.replace('product_sell_', '')}")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+        ]
+        nav_markup = InlineKeyboardMarkup(nav_keyboard)
+        product = db.get_product(product_name)
+        available = product['quantity'] if product else 0
+        await query.edit_message_text(
+            f"🛒 Продажа товара: {product_name}\n\n"
+            f"Доступно: {available}\n"
+            f"Введите количество для продажи:\n\n"
+            f"Пример: 5",
+            reply_markup=nav_markup
+        )
     elif data.startswith("product_"):
         await handle_product_action(query, data)
     elif data.startswith("cashbox_"):
@@ -190,7 +245,7 @@ async def show_cashbox_menu(query):
 
 
 async def show_products_list(query):
-    """Показать список товаров"""
+    """Показать список товаров с кнопками"""
     products = db.get_all_products()
     
     if not products:
@@ -203,14 +258,27 @@ async def show_products_list(query):
         return
     
     text = "📦 Список товаров:\n\n"
+    keyboard = []
+    
     for product in products:
+        # Добавляем информацию о товаре в текст
         text += (
             f"• {product['name']}\n"
-            f"  Количество: {product['quantity']}\n"
-            f"  Цена: {product['price']:.2f} руб.\n\n"
+            f"  Количество: {product['quantity']} | "
+            f"Цена: {product['price']:.2f} руб.\n\n"
         )
+        # Добавляем кнопку для каждого товара
+        # Используем base64 или просто имя товара в callback_data
+        product_name_encoded = product['name'].replace(" ", "_")
+        keyboard.append([
+            InlineKeyboardButton(
+                f"📦 {product['name']}",
+                callback_data=f"product_view_{product_name_encoded}"
+            )
+        ])
     
-    keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_main")]]
+    # Добавляем кнопку "Назад"
+    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_main")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(text, reply_markup=reply_markup)
@@ -393,155 +461,312 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     return
     
-    elif state == "update_quantity":
-        # Изменение количества: название | количество
-        if "|" in text:
-            parts = [p.strip() for p in text.split("|")]
-            if len(parts) == 2:
-                try:
-                    name, quantity = parts
-                    quantity = int(quantity)
-                    
-                    if db.update_product_quantity(name, quantity):
-                        keyboard = [
-                            [InlineKeyboardButton("📝 Изменить еще", callback_data="product_quantity")],
-                            [InlineKeyboardButton("📦 Товары", callback_data="menu_products")],
-                            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
-                        ]
-                        reply_markup = InlineKeyboardMarkup(keyboard)
-                        await update.message.reply_text(
-                            f"✅ Количество обновлено:\n"
-                            f"Товар: {name}\n"
-                            f"Новое количество: {quantity}",
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        keyboard = [
-                            [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
-                            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
-                        ]
-                        reply_markup = InlineKeyboardMarkup(keyboard)
-                        await update.message.reply_text(
-                            f"❌ Товар '{name}' не найден",
-                            reply_markup=reply_markup
-                        )
-                    user_states.pop(user_id, None)
-                    return
-                except ValueError:
+    elif state == "update_quantity" or (state and state.startswith("update_quantity_")):
+        # Изменение количества: название | количество или просто число для быстрого действия
+        product_name = None
+        if state.startswith("update_quantity_"):
+            product_name = state.replace("update_quantity_", "")
+        
+        if product_name:
+            # Быстрое изменение количества для конкретного товара
+            try:
+                quantity = int(text)
+                if db.update_product_quantity(product_name, quantity):
+                    product_name_encoded = product_name.replace(" ", "_")
                     keyboard = [
-                        [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                        [InlineKeyboardButton("📦 К товару", callback_data=f"product_view_{product_name_encoded}")],
+                        [InlineKeyboardButton("📦 Список товаров", callback_data="list_products")],
                         [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     await update.message.reply_text(
-                        "❌ Неверный формат. Используйте: название | количество",
+                        f"✅ Количество обновлено:\n"
+                        f"Товар: {product_name}\n"
+                        f"Новое количество: {quantity}",
                         reply_markup=reply_markup
                     )
-                    return
-    
-    elif state == "update_price":
-        # Изменение цены: название | цена
-        if "|" in text:
-            parts = [p.strip() for p in text.split("|")]
-            if len(parts) == 2:
-                try:
-                    name, price_str = parts
-                    price = float(price_str)
-                    
-                    if db.update_product_price(name, price):
-                        keyboard = [
-                            [InlineKeyboardButton("💵 Изменить еще", callback_data="product_price")],
-                            [InlineKeyboardButton("📦 Товары", callback_data="menu_products")],
-                            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
-                        ]
-                        reply_markup = InlineKeyboardMarkup(keyboard)
-                        await update.message.reply_text(
-                            f"✅ Цена обновлена:\n"
-                            f"Товар: {name}\n"
-                            f"Новая цена: {price:.2f} руб.",
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        keyboard = [
-                            [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
-                            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
-                        ]
-                        reply_markup = InlineKeyboardMarkup(keyboard)
-                        await update.message.reply_text(
-                            f"❌ Товар '{name}' не найден",
-                            reply_markup=reply_markup
-                        )
-                    user_states.pop(user_id, None)
-                    return
-                except ValueError:
+                else:
                     keyboard = [
-                        [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                        [InlineKeyboardButton("📦 Список товаров", callback_data="list_products")],
                         [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     await update.message.reply_text(
-                        "❌ Неверный формат. Используйте: название | цена",
+                        f"❌ Товар '{product_name}' не найден",
                         reply_markup=reply_markup
                     )
-                    return
-    
-    elif state == "sell_product":
-        # Продажа товара: название | количество
-        if "|" in text:
-            parts = [p.strip() for p in text.split("|")]
-            if len(parts) == 2:
-                try:
-                    name, quantity = parts
-                    quantity = int(quantity)
-                    
-                    success, total_price = db.sell_product(name, quantity)
-                    if success:
-                        balance = db.get_cashbox_balance()
-                        keyboard = [
-                            [InlineKeyboardButton("🛒 Продать еще", callback_data="product_sell")],
-                            [InlineKeyboardButton("📦 Товары", callback_data="menu_products")],
-                            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
-                        ]
-                        reply_markup = InlineKeyboardMarkup(keyboard)
-                        await update.message.reply_text(
-                            f"✅ Товар продан:\n"
-                            f"Товар: {name}\n"
-                            f"Количество: {quantity}\n"
-                            f"Сумма: {total_price:.2f} руб.\n"
-                            f"Баланс кассы: {balance:.2f} руб.",
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        product = db.get_product(name)
-                        keyboard = [
-                            [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
-                            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
-                        ]
-                        reply_markup = InlineKeyboardMarkup(keyboard)
-                        if not product:
+                user_states.pop(user_id, None)
+                return
+            except ValueError:
+                keyboard = [
+                    [InlineKeyboardButton("◀️ Назад", callback_data=f"product_view_{product_name.replace(' ', '_')}")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "❌ Введите целое число",
+                    reply_markup=reply_markup
+                )
+                return
+        else:
+            # Стандартное изменение количества: название | количество
+            if "|" in text:
+                parts = [p.strip() for p in text.split("|")]
+                if len(parts) == 2:
+                    try:
+                        name, quantity = parts
+                        quantity = int(quantity)
+                        
+                        if db.update_product_quantity(name, quantity):
+                            keyboard = [
+                                [InlineKeyboardButton("📝 Изменить еще", callback_data="product_quantity")],
+                                [InlineKeyboardButton("📦 Товары", callback_data="menu_products")],
+                                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                            ]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            await update.message.reply_text(
+                                f"✅ Количество обновлено:\n"
+                                f"Товар: {name}\n"
+                                f"Новое количество: {quantity}",
+                                reply_markup=reply_markup
+                            )
+                        else:
+                            keyboard = [
+                                [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                            ]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
                             await update.message.reply_text(
                                 f"❌ Товар '{name}' не найден",
                                 reply_markup=reply_markup
                             )
-                        else:
-                            await update.message.reply_text(
-                                f"❌ Недостаточно товара на складе.\n"
-                                f"Доступно: {product['quantity']}",
-                                reply_markup=reply_markup
-                            )
-                    user_states.pop(user_id, None)
-                    return
-                except ValueError:
+                        user_states.pop(user_id, None)
+                        return
+                    except ValueError:
+                        keyboard = [
+                            [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        await update.message.reply_text(
+                            "❌ Неверный формат. Используйте: название | количество",
+                            reply_markup=reply_markup
+                        )
+                        return
+    
+    elif state == "update_price" or (state and state.startswith("update_price_")):
+        # Изменение цены: название | цена или просто число для быстрого действия
+        product_name = None
+        if state.startswith("update_price_"):
+            product_name = state.replace("update_price_", "")
+        
+        if product_name:
+            # Быстрое изменение цены для конкретного товара
+            try:
+                price = float(text)
+                if db.update_product_price(product_name, price):
+                    product_name_encoded = product_name.replace(" ", "_")
                     keyboard = [
-                        [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                        [InlineKeyboardButton("📦 К товару", callback_data=f"product_view_{product_name_encoded}")],
+                        [InlineKeyboardButton("📦 Список товаров", callback_data="list_products")],
                         [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     await update.message.reply_text(
-                        "❌ Неверный формат. Используйте: название | количество",
+                        f"✅ Цена обновлена:\n"
+                        f"Товар: {product_name}\n"
+                        f"Новая цена: {price:.2f} руб.",
                         reply_markup=reply_markup
                     )
-                    return
+                else:
+                    keyboard = [
+                        [InlineKeyboardButton("📦 Список товаров", callback_data="list_products")],
+                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    await update.message.reply_text(
+                        f"❌ Товар '{product_name}' не найден",
+                        reply_markup=reply_markup
+                    )
+                user_states.pop(user_id, None)
+                return
+            except ValueError:
+                keyboard = [
+                    [InlineKeyboardButton("◀️ Назад", callback_data=f"product_view_{product_name.replace(' ', '_')}")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "❌ Введите число (можно с точкой)",
+                    reply_markup=reply_markup
+                )
+                return
+        else:
+            # Стандартное изменение цены: название | цена
+            if "|" in text:
+                parts = [p.strip() for p in text.split("|")]
+                if len(parts) == 2:
+                    try:
+                        name, price_str = parts
+                        price = float(price_str)
+                        
+                        if db.update_product_price(name, price):
+                            keyboard = [
+                                [InlineKeyboardButton("💵 Изменить еще", callback_data="product_price")],
+                                [InlineKeyboardButton("📦 Товары", callback_data="menu_products")],
+                                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                            ]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            await update.message.reply_text(
+                                f"✅ Цена обновлена:\n"
+                                f"Товар: {name}\n"
+                                f"Новая цена: {price:.2f} руб.",
+                                reply_markup=reply_markup
+                            )
+                        else:
+                            keyboard = [
+                                [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                            ]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            await update.message.reply_text(
+                                f"❌ Товар '{name}' не найден",
+                                reply_markup=reply_markup
+                            )
+                        user_states.pop(user_id, None)
+                        return
+                    except ValueError:
+                        keyboard = [
+                            [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        await update.message.reply_text(
+                            "❌ Неверный формат. Используйте: название | цена",
+                            reply_markup=reply_markup
+                        )
+                        return
+    
+    elif state == "sell_product" or (state and state.startswith("sell_product_")):
+        # Продажа товара: название | количество или просто число для быстрого действия
+        product_name = None
+        if state.startswith("sell_product_"):
+            product_name = state.replace("sell_product_", "")
+        
+        if product_name:
+            # Быстрая продажа конкретного товара
+            try:
+                quantity = int(text)
+                success, total_price = db.sell_product(product_name, quantity)
+                if success:
+                    balance = db.get_cashbox_balance()
+                    product_name_encoded = product_name.replace(" ", "_")
+                    keyboard = [
+                        [InlineKeyboardButton("🛒 Продать еще", callback_data=f"product_sell_{product_name_encoded}")],
+                        [InlineKeyboardButton("📦 К товару", callback_data=f"product_view_{product_name_encoded}")],
+                        [InlineKeyboardButton("📦 Список товаров", callback_data="list_products")],
+                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    await update.message.reply_text(
+                        f"✅ Товар продан:\n"
+                        f"Товар: {product_name}\n"
+                        f"Количество: {quantity}\n"
+                        f"Сумма: {total_price:.2f} руб.\n"
+                        f"Баланс кассы: {balance:.2f} руб.",
+                        reply_markup=reply_markup
+                    )
+                else:
+                    product = db.get_product(product_name)
+                    product_name_encoded = product_name.replace(" ", "_")
+                    keyboard = [
+                        [InlineKeyboardButton("📦 К товару", callback_data=f"product_view_{product_name_encoded}")],
+                        [InlineKeyboardButton("📦 Список товаров", callback_data="list_products")],
+                        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    if not product:
+                        await update.message.reply_text(
+                            f"❌ Товар '{product_name}' не найден",
+                            reply_markup=reply_markup
+                        )
+                    else:
+                        await update.message.reply_text(
+                            f"❌ Недостаточно товара на складе.\n"
+                            f"Доступно: {product['quantity']}",
+                            reply_markup=reply_markup
+                        )
+                user_states.pop(user_id, None)
+                return
+            except ValueError:
+                product_name_encoded = product_name.replace(" ", "_")
+                keyboard = [
+                    [InlineKeyboardButton("◀️ Назад", callback_data=f"product_view_{product_name_encoded}")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "❌ Введите целое число",
+                    reply_markup=reply_markup
+                )
+                return
+        else:
+            # Стандартная продажа: название | количество
+            if "|" in text:
+                parts = [p.strip() for p in text.split("|")]
+                if len(parts) == 2:
+                    try:
+                        name, quantity = parts
+                        quantity = int(quantity)
+                        
+                        success, total_price = db.sell_product(name, quantity)
+                        if success:
+                            balance = db.get_cashbox_balance()
+                            keyboard = [
+                                [InlineKeyboardButton("🛒 Продать еще", callback_data="product_sell")],
+                                [InlineKeyboardButton("📦 Товары", callback_data="menu_products")],
+                                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                            ]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            await update.message.reply_text(
+                                f"✅ Товар продан:\n"
+                                f"Товар: {name}\n"
+                                f"Количество: {quantity}\n"
+                                f"Сумма: {total_price:.2f} руб.\n"
+                                f"Баланс кассы: {balance:.2f} руб.",
+                                reply_markup=reply_markup
+                            )
+                        else:
+                            product = db.get_product(name)
+                            keyboard = [
+                                [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                            ]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            if not product:
+                                await update.message.reply_text(
+                                    f"❌ Товар '{name}' не найден",
+                                    reply_markup=reply_markup
+                                )
+                            else:
+                                await update.message.reply_text(
+                                    f"❌ Недостаточно товара на складе.\n"
+                                    f"Доступно: {product['quantity']}",
+                                    reply_markup=reply_markup
+                                )
+                        user_states.pop(user_id, None)
+                        return
+                    except ValueError:
+                        keyboard = [
+                            [InlineKeyboardButton("◀️ Назад", callback_data="menu_products")],
+                            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_main")]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        await update.message.reply_text(
+                            "❌ Неверный формат. Используйте: название | количество",
+                            reply_markup=reply_markup
+                        )
+                        return
     
     elif state == "cashbox_add":
         # Пополнение кассы: просто число
